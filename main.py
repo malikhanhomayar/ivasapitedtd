@@ -2,7 +2,6 @@ import os
 import re
 import json
 import asyncio
-import aiohttp
 import uvicorn
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
