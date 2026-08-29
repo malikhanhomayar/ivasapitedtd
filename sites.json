@@ -1,4 +1,4 @@
 [
-  {"name": "railway", "checkout_url": "https://railway.com/", "price": "AUTO", "gate": "railway"},
-  {"name": "google", "checkout_url": "https://www.google.com/", "price": "AUTO", "gate": "payment"},
+  {"name": "railway", "checkout_url": "https://railway.com/", "price": "AUTO", "gate": "Shopify payment"},
+  {"name": "google", "checkout_url": "https://www.google.com/", "price": "AUTO", "gate": "Shopify payment"},
 ]
