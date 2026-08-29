@@ -2,12 +2,17 @@ import os
 import re
 import json
 import asyncio
+import logging
 import uvicorn
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from playwright.async_api import async_playwright
 
-app = FastAPI(title="Smart Shopify Checker", version="4.0.0")
+# Logging setup (sirf warnings aur errors)
+logging.basicConfig(level=logging.WARNING)
+logger = logging.getLogger("checker")
+
+app = FastAPI(title="Smart Shopify Checker", version="4.1.0")
 
 # ---------- CORS ----------
 ALLOWED_ORIGINS = os.getenv("ALLOWED_ORIGINS", "*").split(",")
@@ -35,7 +40,7 @@ def load_sites():
     global SITES
     with open(SITES_FILE, "r", encoding="utf-8") as f:
         SITES = json.load(f)
-    print(f"[CONFIG] Loaded {len(SITES)} sites")
+    logger.warning(f"Loaded {len(SITES)} sites")
 
 # ---------- Helpers ----------
 def detect_card_type(card_number: str) -> str:
@@ -82,7 +87,7 @@ async def scrape_site_price(playwright, site_url):
         await browser.close()
         return price or "2.95"
     except Exception as e:
-        print(f"[SCRAPE ERROR] {site_url}: {e}")
+        logger.error(f"Scrape error {site_url}: {e}")
         await browser.close()
         return None
 
@@ -97,7 +102,7 @@ async def get_site_price(site):
         async with async_playwright() as p:
             price = await scrape_site_price(p, url)
     except Exception as e:
-        print(f"[PRICE FETCH ERROR] {name}: {e}")
+        logger.error(f"Price fetch error {name}: {e}")
         price = None
     if price:
         price_cache[name] = price
@@ -111,17 +116,15 @@ async def health_check_site(playwright, site):
     page = await browser.new_page()
     try:
         await page.goto(url, timeout=15000, wait_until="domcontentloaded")
-        # Working agar koi product link ya checkout link mil jaye
         product_link = await page.query_selector('a[href*="/products/"], a[href*="/cart"], a[href*="/checkout"]')
         if product_link:
             await browser.close()
             return True
-        # Agar direct checkout form ho
         form = await page.query_selector('form[action*="/cart"], input[name="checkout"], button[name="checkout"]')
         await browser.close()
         return form is not None
     except Exception as e:
-        print(f"[HEALTH CHECK ERROR] {site.get('name')}: {e}")
+        logger.error(f"Health check error {site.get('name')}: {e}")
         await browser.close()
         return False
 
@@ -134,10 +137,9 @@ async def update_health():
             try:
                 ok = await health_check_site(p, site)
                 working[name] = ok
-                print(f"[HEALTH] {name}: {'WORKING' if ok else 'DEAD'}")
             except Exception as e:
                 working[name] = False
-                print(f"[HEALTH ERROR] {name}: {e}")
+                logger.error(f"Health error {name}: {e}")
     site_health = working
     last_health_check = asyncio.get_event_loop().time()
 
@@ -166,12 +168,10 @@ async def attempt_card_charge(site, card_data):
 
             await page.goto(url.rstrip("/") + "/checkout", timeout=20000, wait_until="domcontentloaded")
 
-            # Fill card details (adjust selectors as per actual checkout)
             await page.fill('input[name="cardnumber"], input[name="number"]', card_data["number"])
             await page.fill('input[name="expiry"], input[name="exp-date"]', f'{card_data["month"]}/{card_data["year"]}')
             await page.fill('input[name="cvc"], input[name="verification_value"]', card_data["cvv"])
 
-            # Click pay button
             await page.click('button[type="submit"], #pay-button, button:has-text("Pay now")')
             await page.wait_for_load_state("domcontentloaded", timeout=30000)
 
@@ -264,4 +264,4 @@ async def run_health():
 
 if __name__ == "__main__":
     port = int(os.getenv("PORT", 8000))
-    uvicorn.run("main:app", host="0.0.0.0", port=port, reload=False)
+    uvicorn.run("main:app", host="0.0.0.0", port=port, log_level="warning", reload=False)
