@@ -7,7 +7,7 @@ from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from playwright.async_api import async_playwright
 
-app = FastAPI(title="api create by Ali sindhi", version="4.0.0")
+app = FastAPI(title="Smart Shopify Checker", version="4.0.0")
 
 # ---------- CORS ----------
 ALLOWED_ORIGINS = os.getenv("ALLOWED_ORIGINS", "*").split(",")
@@ -93,8 +93,12 @@ async def get_site_price(site):
         return site["price"]
     if name in price_cache:
         return price_cache[name]
-    async with async_playwright() as p:
-        price = await scrape_site_price(p, url)
+    try:
+        async with async_playwright() as p:
+            price = await scrape_site_price(p, url)
+    except Exception as e:
+        print(f"[PRICE FETCH ERROR] {name}: {e}")
+        price = None
     if price:
         price_cache[name] = price
     else:
@@ -116,7 +120,8 @@ async def health_check_site(playwright, site):
         form = await page.query_selector('form[action*="/cart"], input[name="checkout"], button[name="checkout"]')
         await browser.close()
         return form is not None
-    except:
+    except Exception as e:
+        print(f"[HEALTH CHECK ERROR] {site.get('name')}: {e}")
         await browser.close()
         return False
 
@@ -125,10 +130,14 @@ async def update_health():
     working = {}
     async with async_playwright() as p:
         for site in SITES:
-            name = site["name"]
-            ok = await health_check_site(p, site)
-            working[name] = ok
-            print(f"[HEALTH] {name}: {'WORKING' if ok else 'DEAD'}")
+            name = site.get("name")
+            try:
+                ok = await health_check_site(p, site)
+                working[name] = ok
+                print(f"[HEALTH] {name}: {'WORKING' if ok else 'DEAD'}")
+            except Exception as e:
+                working[name] = False
+                print(f"[HEALTH ERROR] {name}: {e}")
     site_health = working
     last_health_check = asyncio.get_event_loop().time()
 
@@ -157,12 +166,12 @@ async def attempt_card_charge(site, card_data):
 
             await page.goto(url.rstrip("/") + "/checkout", timeout=20000, wait_until="domcontentloaded")
 
-            # Fill card details
+            # Fill card details (adjust selectors as per actual checkout)
             await page.fill('input[name="cardnumber"], input[name="number"]', card_data["number"])
             await page.fill('input[name="expiry"], input[name="exp-date"]', f'{card_data["month"]}/{card_data["year"]}')
             await page.fill('input[name="cvc"], input[name="verification_value"]', card_data["cvv"])
 
-            # Click pay
+            # Click pay button
             await page.click('button[type="submit"], #pay-button, button:has-text("Pay now")')
             await page.wait_for_load_state("domcontentloaded", timeout=30000)
 
@@ -238,13 +247,20 @@ async def health():
 
 @app.get("/run-health")
 async def run_health():
-    await update_health()
-    return {
-        "status": "complete",
-        "working_sites": sum(1 for v in site_health.values() if v),
-        "total_sites": len(SITES),
-        "details": site_health
-    }
+    try:
+        await update_health()
+        working_count = sum(1 for v in site_health.values() if v)
+        return {
+            "status": "complete",
+            "working_sites": working_count,
+            "total_sites": len(SITES),
+            "details": site_health
+        }
+    except Exception as e:
+        return {
+            "status": "error",
+            "error": str(e)[:200]
+        }
 
 if __name__ == "__main__":
     port = int(os.getenv("PORT", 8000))
