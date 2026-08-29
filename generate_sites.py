@@ -3,9 +3,8 @@ import re
 
 # Apni sites ki raw list yahan paste karo (har line ek URL)
 raw_urls = """
-https://cleetusm.myshopify.com
-https://demkoknives.myshopify.com
-https://doctoraromas.myshopify.com
+https://railway.com
+https://www.google.com
 # ... baaki URLs yahan paste karein ...
 """
 
